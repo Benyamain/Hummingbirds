@@ -61,9 +61,9 @@ public class Flower : MonoBehaviour
 
     /// <summary>
     /// Attempts to remove nectar from the flower
+    /// </summary>
     /// <param name="amount">The amount of nectar to remove</param>
     /// <returns>The actual amount successfully removed</returns>
-    /// </summary>
     public float Feed(float amount) {
         // Track how much nectar was successfully taken (cannot take more than what is available)
         float nectarTaken = Mathf.Clamp(amount, 0f, NectarAmount);
