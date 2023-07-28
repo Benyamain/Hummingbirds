@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.MLAgents;
 using System;
+using Unity.MLAgents.Actuators;
+using Unity.MLAgents.Sensors;
 
 /// <summary>
 /// A hummingbird machine learning agent
@@ -13,7 +15,7 @@ public class HummingbirdAgent : Agent
     public float moveForce = 2f;
 
     [Tooltip("Speed to pitch up or down")]
-    public float speed = 100f;
+    public float pitchSpeed = 100f;
 
     [Tooltip("Speed to rotate around the up axis")]
     public float yawSpeed = 100f;
@@ -101,7 +103,91 @@ public class HummingbirdAgent : Agent
         UpdateNearestFlower();
     }
 
-    /// <summary
+    /// <summary>
+    /// Called when an action is received from either the player input or the neural network
+    ///
+    /// actions represents:
+    /// Index 0: move vector x (+1 = right, -1 = left)
+    /// Index 1: move vector y (+1 = up, -1 = down)
+    /// Index 2: move vector z (+1 = forward, -1 = backward)
+    /// Index 3: pitch angle (+1 = pitch up, -1 = pitch down)
+    /// Index 4: yaw angle (+1 = turn right, -1 = turn left)
+    /// </summary>
+    /// <param name="actions">The actions to take</param>
+    public override void OnActionReceived(ActionBuffers actions)
+    {
+        float moveX = actions.ContinuousActions[0];
+        float moveY = actions.ContinuousActions[1];
+        float moveZ = actions.ContinuousActions[2];
+
+        // Don't take actions if frozen
+        if (frozen) return;
+
+        // Calculate movement vector
+        Vector3 move = new Vector3(moveX, moveY, moveZ);
+
+        // Add force in the direction of the move vector
+        rigidbody.AddForce(move * moveForce);
+
+        // Get the current rotation
+        Vector3 rotationVector = transform.rotation.eulerAngles;
+
+        // Calculate pitch and yaw rotation
+        float pitchChange = actions.ContinuousActions[3];
+        float yawChange = actions.ContinuousActions[4];
+
+        // Calculate smooth rotation changes
+        smoothPitchChange = Mathf.MoveTowards(smoothPitchChange, pitchChange, 2f * Time.fixedDeltaTime);
+        smoothYawChange = Mathf.MoveTowards(smoothYawChange, yawChange, 2f * Time.fixedDeltaTime);
+
+        // Calculate new pitch and yaw based on smoothed values
+        // Clamp pitch to avoid flipping upside down
+        float pitch = rotationVector.x + smoothPitchChange * Time.fixedDeltaTime * pitchSpeed;
+        if (pitch > 180f) pitch -= 360f;
+        pitch = Mathf.Clamp(pitch, -MaxPitchAngle, MaxPitchAngle);
+
+        float yaw = rotationVector.y + smoothYawChange * Time.fixedDeltaTime * yawSpeed;
+
+        // Apply the new rotation
+        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+    }
+
+    /// <summary>
+    /// Collect vector observations from the environment
+    /// </summary>
+    /// <param name="sensor">The vector sensor</param>
+    public override void CollectObservations(VectorSensor sensor)
+    {
+        // If nearestFlower is null, observe an empty array and return early
+        if (nearestFlower == null) {
+            sensor.AddObservation(new float[10]);
+            return;
+        }
+        
+        // Observe the agent's local rotation (4 observations)
+        sensor.AddObservation(transform.localRotation.normalized);
+
+        // Get a vector from the beak tip to the nearest flower
+        Vector3 toFlower = nearestFlower.FlowerCenterPosition - beakTip.position;
+
+        // Observe a normalized vector pointing to the nearest flower (3 observations)
+        sensor.AddObservation(toFlower.normalized);
+
+        // Observe a dot product that indicates whether the beak tip is in front of the flower (1 observation)
+        // (+1 means that the beak tip is directly in front of the flower, -1 means diretly behind)
+        sensor.AddObservation(Vector3.Dot(toFlower.normalized, -nearestFlower.FlowerUpVector.normalized));
+
+        // Observe a dot product that indicates whether the beak is pointing toward the flower (1 observation)
+        // (+1 means that the beak is pointing directly at the flower, -1 means diretly away)
+        sensor.AddObservation(Vector3.Dot(beakTip.forward.normalized, -nearestFlower.FlowerUpVector.normalized));
+
+        // Observe the relative distance from the beak tip to the flower (1 observation)
+        sensor.AddObservation(toFlower.magnitude / FlowerArea.AreaDiameter);
+
+        // 10 total observations
+    }
+
+    /// <summary>
     /// Move agent to a safe random position (i.e. does not collide with anything)
     /// If in front of flower, also point the beak at the flower
     /// </summary>
@@ -159,5 +245,27 @@ public class HummingbirdAgent : Agent
         // Set the position and rotation
         transform.position = potentialPosition;
         transform.rotation = potentialRotation;
+    }
+
+    /// <summary>
+    /// Update the nearest flower to the agent
+    /// </summary>
+    private void UpdateNearestFlower() {
+        foreach (Flower flower in flowerArea.Flowers) {
+            if (nearestFlower == null && flower.HasNectar) {
+                // No current nearest flower and this flower has nectar, so set to this flower
+                nearestFlower = flower;
+            }
+            else if (flower.HasNectar) {
+                // Calculate distance to this flower and distance to the current nearest flower
+                float distanceToFlower = Vector3.Distance(flower.transform.position, beakTip.position);
+                float distanceToCurrentNearestFlower = Vector3.Distance(nearestFlower.transform.position, beakTip.position);
+
+                // If current nearest flower is empty OR this flower is closer, update the nearest flower
+                if (!nearestFlower.HasNectar || distanceToFlower < distanceToCurrentNearestFlower) {
+                    nearestFlower = flower;
+                }
+            }
+        }
     }
 }
