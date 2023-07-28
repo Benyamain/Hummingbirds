@@ -8,7 +8,7 @@ using UnityEngine;
 public class FlowerArea : MonoBehaviour
 {
     // The diameter of the area where the agent and flowers can be used for observing relative distance from agent to flower
-    public const float areaDiameter = 20f;
+    public const float AreaDiameter = 20f;
 
     // The list of all flower plants in this flower area (flower plants have multiple flowers)
     private List<GameObject> flowerPlants;
